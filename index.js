@@ -1,13 +1,12 @@
 
 const fetch = require('node-fetch'),
 	Epub = require("epub-gen"),
+	// OpenCC = require('opencc'),
+	fs = require("fs"),
 	cheerio = require("cheerio"),
 	sleep = require('sleep'),
-	argv = require('argv'),
-	OpenCC = require('opencc');
-
-const converter = new OpenCC('s2t.json');
-
+	argv = require('argv');
+	
 
 var args = argv.option([
     {
@@ -23,10 +22,28 @@ var args = argv.option([
         description:'output epub file name'
     },
     {
+        name: 'imgs',
+        short: 'i',
+        type: 'list,path',
+        description:'add image into epub'
+    },    
+    {
         name: 'trad',
         short: 't',
         type: 'bool',
         description:'Traditional'
+    },    
+    {
+        name: 'debug',
+        short: 'd',
+        type: 'bool',
+        description:'Debug Info'
+    },    
+    {
+        name: 'nu',
+        short: 'n',
+        type: 'int',
+        description:'max number'
     }
 ]).run();
 
@@ -36,7 +53,13 @@ if (!args.options.url) {
 }
 
 
+const tw = args.options.trad? true: false,
+	  debug = args.options.debug? true: false;
+const converter = tw? new OpenCC('s2tw.json') : false;
+
+
 var epubInfo = {
+	lang: "zh",
     title: "",
     author: "",
     publisher: "",
@@ -44,14 +67,16 @@ var epubInfo = {
     content: []
 };
 
-var getChapter = [];
+var getChapter = [], cache=[];
+var fn = './cache_' + args.options.url.match(/(\d+)\.html/)[1];
+// args.options.imgs
 
 fetch(args.options.url).then(res => res.text())
 .then(body => {
 	let dom = cheerio.load(body);
 
 	epubInfo.cover = dom("div.product-gallery a").first().attr("href");
-	epubInfo.title = dom("h2.p-t-10").first().text()
+	epubInfo.title = dom("h2.p-t-10").first().text();
 	let info = dom("ul.book-detail li");
 	epubInfo.author = info.first().find('a').first().text();
 
@@ -64,23 +89,38 @@ fetch(args.options.url).then(res => res.text())
 		var href = d.attr('href'),
 			title = d.text();
 		if(href.search(/www\.esjzone\.cc/) == -1) return;
-		title = converter.convertSync(title)
-		epubInfo.content.push({title:title, data: ""});
+		if(tw) {
+			title = converter.convertSync(title)
+		}
+		if (args.options.nu && (args.options.nu <= i)) return;
 
+		if(debug) {
+			console.log("Title %s, %s", i, title)
+		}
+
+		epubInfo.content.push({title:title, data: ""});
+		cache.push({t:title, u:href});
 
 		getChapter.push(fetch(href).then(res => res.text()));
 
 	});
+
+	
+	fs.writeFileSync(fn, JSON.stringify(cache));
 
 	Promise.all(getChapter).then(docs => {
 		docs.forEach((body, i) => {
 			let pageDom = cheerio.load(body);
 			let title = pageDom('section h2').first().text();
 			let content = pageDom('section div.forum-content').html();
-			epubInfo.content[i].data = converter.convertSync(content)
+			if(tw) {
+				content = converter.convertSync(content)	
+			}
+			if(debug) {
+				console.log("Page %s, %s, %s", i, title, content)
+			}
+			epubInfo.content[i].data = content;
 		});
-
-		// console.log("done");
 
 		new Epub(epubInfo, args.options.epub)
 		.promise.then(
@@ -89,6 +129,5 @@ fetch(args.options.url).then(res => res.text())
 			},
 			err => console.error("Failed to generate Ebook because of ", err)
 		);
-
 	});
 });
