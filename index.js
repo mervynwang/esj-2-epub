@@ -5,6 +5,7 @@ const fetch = require('node-fetch'),
 	fs = require("fs"),
 	cheerio = require("cheerio"),
 	sleep = require('sleep'),
+	md5 = require('md5'),
 	argv = require('argv');
 	
 
@@ -51,7 +52,6 @@ if (!args.options.url) {
 	argv.help();
 	process.exit();
 }
-
 
 const tw = args.options.trad? true: false,
 	  debug = args.options.debug? true: false;
@@ -102,11 +102,27 @@ fetch(args.options.url).then(res => res.text())
 		cache.push({t:title, u:href});
 
 		getChapter.push(fetch(href).then(res => res.text()));
-
 	});
 
-	
-	fs.writeFileSync(fn, JSON.stringify(cache));
+	var rebuild = false;
+	if(fs.existsSync(fn)) {
+		let chapterListHash = md5(JSON.stringify(cache));
+		let fsCache = fs.readFileSync(fn);
+		let cacheObj = JSON.parse(fsCache.toString());
+
+		if(debug) {
+			console.log("new %s, old %s", chapterListHash, cacheObj.hash);
+		}
+
+		rebuild = (!cacheObj 
+			|| !cacheObj.hash 
+			|| (cacheObj.hash != chapterListHash))? true : false;
+	}
+
+	if(!rebuild) {
+		console.log("cache is ok");
+		process.exit();
+	}
 
 	Promise.all(getChapter).then(docs => {
 		docs.forEach((body, i) => {
@@ -120,6 +136,12 @@ fetch(args.options.url).then(res => res.text())
 				console.log("Page %s, %s, %s", i, title, content)
 			}
 			epubInfo.content[i].data = content;
+		});
+
+		epubInfo.list = cache
+		epubInfo.hash = md5(JSON.stringify(cache));
+		fs.writeFile(fn, JSON.stringify(epubInfo), e => {
+			console.log("Cache write Error %o", e);
 		});
 
 		new Epub(epubInfo, args.options.epub)
