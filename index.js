@@ -45,12 +45,6 @@ var args = argv.option([
         short: 'd',
         type: 'bool',
         description:'Debug Info'
-    },
-    {
-        name: 'nu',
-        short: 'n',
-        type: 'int',
-        description:'max number'
     }
 ]).run();
 
@@ -71,14 +65,22 @@ if (args.options.filter && fs.existsSync(args.options.filter)) {
 	console.log(filter);
 }
 
-var epubInfo = {
-	lang: "zh",
-    title: "",
-    author: "",
-    publisher: "",
-    cover: "",
-    content: []
-};
+var rebuild = false, epubInfo;
+if(fs.existsSync(fn)) {
+	let fsCache = fs.readFileSync(fn);
+	epubInfo = JSON.parse(fsCache.toString());
+} else {
+	epubInfo = {
+		lang: "zh",
+	    title: "",
+	    author: "",
+	    publisher: "",
+	    cover: "",
+	    content: []
+	};
+}
+
+
 
 var getChapter = [], cache=[];
 var fn = './cache_' + args.options.url.match(/(\d+)\.html/)[1];
@@ -121,27 +123,14 @@ fetch(args.options.url).then(res => res.text())
 		if(tw) {
 			title = converter.convertSync(title);
 		}
-		if (args.options.nu && (args.options.nu <= i)) return;
 
 		cache.push({t:title, u:href});
 		epubInfo.content.push({title:title, data: ""});
 		getChapter.push(fetch(href).then(res => res.text()));
 	});
 
-	var rebuild = false;
-	if(fs.existsSync(fn)) {
-		let chapterListHash = md5(JSON.stringify(cache));
-		let fsCache = fs.readFileSync(fn);
-		let cacheObj = JSON.parse(fsCache.toString());
-
-		if(debug) {
-			console.log("new %s, old %s", chapterListHash, cacheObj.hash);
-		}
-
-		rebuild = (!cacheObj
-			|| !cacheObj.hash
-			|| (cacheObj.hash != chapterListHash))? true : false;
-	}
+	let chapterListHash = md5(JSON.stringify(cache));
+	rebuild = (epubInfo.hash && (epubInfo.hash != chapterListHash))? true : false;
 
 	if(!rebuild) {
 		console.log("cache is ok");
