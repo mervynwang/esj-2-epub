@@ -18,10 +18,16 @@ var args = argv.option([
     },
     {
         name: 'epub',
-        short: 'f',
+        short: 'e',
         type: 'path',
         description:'output epub file name'
     },
+    {
+        name: 'filter',
+        short: 'f',
+        type: 'path',
+        description:'filter json file {title:[{reg, replace},{}], content:[{}]}'
+    },    
     {
         name: 'imgs',
         short: 'i',
