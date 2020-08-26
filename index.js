@@ -56,13 +56,12 @@ if (!args.options.url) {
 const tw = args.options.trad? true: false,
 	  debug = args.options.debug? true: false;
 const converter = tw? new OpenCC('s2tw.json') : false;
-
+const cheerioOpt = {decodeEntities: false};
 var filter;
 if (args.options.filter && fs.existsSync(args.options.filter)) {
 	let fsCache = fs.readFileSync(args.options.filter);
 	let cacheObj = JSON.parse(fsCache.toString());
 	filter = (cacheObj.title)? cacheObj : false;
-	console.log(filter);
 }
 
 var rebuild = false, epubInfo;
@@ -88,7 +87,7 @@ var fn = './cache_' + args.options.url.match(/(\d+)\.html/)[1];
 
 fetch(args.options.url).then(res => res.text())
 .then(body => {
-	let dom = cheerio.load(body);
+	let dom = cheerio.load(body, cheerioOpt);
 
 	epubInfo.cover = dom("div.product-gallery a").first().attr("href");
 	epubInfo.title = dom("h2.p-t-10").first().text();
@@ -107,7 +106,7 @@ fetch(args.options.url).then(res => res.text())
 			console.log("oTitle '%s'",title);
 		}
 
-		if(filter.title) {
+		if(filter && filter.title) {
 			filter.title.forEach((n, i) => {
 				if(!n[0] && !n[1] && !title) return ;
 				let reg = new RegExp(n[0]);
@@ -125,27 +124,35 @@ fetch(args.options.url).then(res => res.text())
 		}
 
 		cache.push({t:title, u:href});
-		epubInfo.content.push({title:title, data: ""});
-		getChapter.push(fetch(href).then(res => res.text()));
+		// epubInfo.content.push({title:title, data: ""});
+		// getChapter.push(fetch(href).then(res => res.text()));
 	});
 
 	let chapterListHash = md5(JSON.stringify(cache));
-	rebuild = (epubInfo.hash && (epubInfo.hash != chapterListHash))? true : false;
+	rebuild = (!epubInfo.hash && (epubInfo.hash != chapterListHash))? true : false;
 
 	if(!rebuild) {
 		console.log("cache is ok");
 		process.exit();
+	} else {
+		cache.forEach((n, i) => {
+			if (getChapter && getChapter.list && getChapter.list[i] && (getChapter.list[i].u == n.u)) {
+				return ;
+			}
+			epubInfo.content.push({title:n.t, data: ""});
+			getChapter.push(fetch(n.u).then(res => res.text()));
+		});
 	}
 
 	Promise.all(getChapter).then(docs => {
 		docs.forEach((body, i) => {
-			let pageDom = cheerio.load(body);
+			let pageDom = cheerio.load(body, cheerioOpt);
 			let title = pageDom('section h2').first().text();
 			let content = pageDom('section div.forum-content').html();
-			if(filter.content) {
+			if(filter && filter.content) {
 				filter.content.forEach((n, i) => {
 					if(!n[0] && !n[1] && !content) return ;
-					let reg = new RegExp(n[0]);
+					let reg = new RegExp(n[0], 'gm');
 					content = content.replace(reg, n[1]);
 				});
 			}
@@ -161,7 +168,7 @@ fetch(args.options.url).then(res => res.text())
 		epubInfo.list = cache
 		epubInfo.hash = md5(JSON.stringify(cache));
 		fs.writeFile(fn, JSON.stringify(epubInfo), e => {
-			console.log("Cache write Error %o", e);
+			if(e) console.log("Cache write Error %o", e);
 		});
 
 		new Epub(epubInfo, args.options.epub)
