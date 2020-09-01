@@ -57,14 +57,18 @@ const tw = args.options.trad? true: false,
 	  debug = args.options.debug? true: false;
 const converter = tw? new OpenCC('s2tw.json') : false;
 const cheerioOpt = {decodeEntities: false};
+
 var filter;
+var getChapter = [], cache=[];
+var fn = './cache_' + args.options.url.match(/(\d+)\.html/)[1];
+var rebuild = false, epubInfo;
+
 if (args.options.filter && fs.existsSync(args.options.filter)) {
 	let fsCache = fs.readFileSync(args.options.filter);
 	let cacheObj = JSON.parse(fsCache.toString());
 	filter = (cacheObj.title)? cacheObj : false;
 }
 
-var rebuild = false, epubInfo;
 if(fs.existsSync(fn)) {
 	let fsCache = fs.readFileSync(fn);
 	epubInfo = JSON.parse(fsCache.toString());
@@ -79,10 +83,6 @@ if(fs.existsSync(fn)) {
 	};
 }
 
-
-
-var getChapter = [], cache=[];
-var fn = './cache_' + args.options.url.match(/(\d+)\.html/)[1];
 // args.options.imgs
 
 fetch(args.options.url).then(res => res.text())
@@ -101,7 +101,10 @@ fetch(args.options.url).then(res => res.text())
 			no = d.data('title');
 		var href = d.attr('href'),
 			title = d.text();
-		if(href.search(/www\.esjzone\.cc/) == -1) return;
+		if(href.search(/www\.esjzone\.cc/) == -1) {
+			console.log("Title '%s' href: %s",title, href);
+			return;
+		}
 		if(debug) {
 			console.log("oTitle '%s'",title);
 		}
@@ -129,16 +132,20 @@ fetch(args.options.url).then(res => res.text())
 	});
 
 	let chapterListHash = md5(JSON.stringify(cache));
-	rebuild = (!epubInfo.hash && (epubInfo.hash != chapterListHash))? true : false;
+	rebuild = (!epubInfo.hash || (epubInfo.hash != chapterListHash))? true : false;
 
+	var baseLine = epubInfo.content? epubInfo.content.length : 0;
 	if(!rebuild) {
 		console.log("cache is ok");
 		process.exit();
 	} else {
+
 		cache.forEach((n, i) => {
-			if (getChapter && getChapter.list && getChapter.list[i] && (getChapter.list[i].u == n.u)) {
+			console.log("%o, %s", epubInfo.list, n.u)
+			if ( epubInfo.list && epubInfo.list[i] && (epubInfo.list[i].u == n.u)) {
 				return ;
 			}
+			console.log('new title %s', n.t);
 			epubInfo.content.push({title:n.t, data: ""});
 			getChapter.push(fetch(n.u).then(res => res.text()));
 		});
@@ -159,10 +166,14 @@ fetch(args.options.url).then(res => res.text())
 			if(tw) {
 				content = converter.convertSync(content)
 			}
+			// content.img change to abs path;
 			if(debug) {
 				console.log("Page %s, %s, %s", i, title, content)
 			}
-			epubInfo.content[i].data = content;
+
+			if(rebuild) {
+				epubInfo.content[baseLine + i].data = content;
+			}
 		});
 
 		epubInfo.list = cache
